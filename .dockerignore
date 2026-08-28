@@ -1,0 +1,18 @@
+# Secrets
+.env
+.env.*.local
+
+# Image archives / build artifacts
+*.tar
+/build/
+/bin/
+bot
+
+# VCS
+.git
+.gitignore
+
+# Editor/OS
+.DS_Store
+*.swp
+.vscode/

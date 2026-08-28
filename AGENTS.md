@@ -13,6 +13,7 @@ internal/
     repository/          # Data-access layer (ToolRepository, UserRepository)
   fuzzy/                 # Token-substring, case-insensitive name matching
   handlers/              # Slash command + button (component) handlers
+Dockerfile               # Multi-stage image build for the Discord bot
 docker-compose.yml       # Local PostgreSQL service
 .env                     # Local secrets (never commit real values)
 ```
@@ -30,9 +31,16 @@ go build ./...              # Compile all packages
 go run ./cmd/bot            # Run the bot locally
 go test ./...               # Run all tests
 go vet ./...                # Static analysis
+docker build -t krew-toolie .                       # Build the bot image
+docker build --platform linux/amd64 -t krew-toolie . # Build for amd64 (e.g. NAS)
 ```
 
 Populate `.env` with `DISCORD_TOKEN` and `DATABASE_URL` before running; PostgreSQL must be up via `docker compose`.
+
+> **Dockerfile check:** whenever a command, dependency, runtime behavior, or the
+> target platform changes, verify the `Dockerfile` still builds the image
+> successfully (and, if deploying to the NAS, for `linux/amd64`) so the image
+> can be loaded/run without errors.
 
 ## Commands & Behavior
 
@@ -47,6 +55,58 @@ Name matching is token-substring: every word of the query must appear somewhere 
 Borrow/return operations lock the affected row (`FOR UPDATE`) inside a transaction to prevent concurrent double-borrowing.
 
 Component buttons carry custom IDs like `borrow:<tool-id>` / `remove:<tool-id>`, handled by `HandleComponentInteraction`.
+
+## Docker & Deployment
+
+The `Dockerfile` is a multi-stage build that produces a small static binary
+(`CGO_ENABLED=0`) and runs it on `alpine` as a non-root user. The bot makes
+outbound HTTPS/WebSocket connections to Discord, so no ports are exposed.
+
+`docker-compose.yml` builds the bot image and runs it alongside a Postgres
+container. This is the recommended way to run on a NAS (e.g. DXP4800pro) via
+SSH/terminal, since it builds natively on the device's own architecture and
+avoids cross-architecture image export/import:
+
+```bash
+# From the repo root on the NAS (native amd64), build & start all services:
+docker compose up -d --build
+docker compose logs -f app       # follow app logs
+
+# Rebuild and restart only the app after code changes:
+docker compose up -d --build app
+
+# Stop everything (the Postgres data volume is preserved):
+docker compose down
+```
+
+> Do **not** use `docker compose down -v` unless you want to wipe the Postgres
+> volume. Use a plain `docker compose down` to preserve data.
+
+As an alternative, a single bot image (without Postgres) can be built, saved,
+and loaded on the NAS:
+
+```bash
+docker build -t krew-toolie:latest .
+docker save -o krew-toolie.tar krew-toolie:latest
+# on the NAS:
+docker load -i krew-toolie.tar
+```
+
+> **Cross-architecture note:** building `linux/amd64` from an Apple Silicon Mac
+> requires `--platform linux/amd64` and runs under QEMU, which can crash the Go
+> toolchain (`fatal error: ... free object`). Prefer building on a native amd64
+> host (the NAS itself, any Linux x86_64 box, or a GitHub Actions
+> `ubuntu-latest` runner).
+
+The image does **not** bundle `.env` (secrets are gitignored); supply
+`DISCORD_TOKEN` and `DATABASE_URL` via environment variables or the `env_file`
+in `docker-compose.yml`. If the schema or database driver changes, confirm
+`AutoMigrate` and the image's runtime still connect to Postgres.
+
+> **Always re-verify the image build** after changing commands, adding
+> dependencies, or altering runtime/env behavior — a `go.sum` checksum drift or
+> a new cgo dependency can break the build until `Dockerfile`/`go.mod` are
+> updated. See the note in Build, Test, and Development Commands.
 
 ## Coding Style & Naming Conventions
 
