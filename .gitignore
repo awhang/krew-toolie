@@ -1,0 +1,11 @@
+# Local environment / secrets
+.env
+
+# Compiled binaries and build artifacts
+/bin/
+*.exe
+bot
+
+# Editor/OS files
+.DS_Store
+*.swp
