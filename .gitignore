@@ -4,7 +4,7 @@
 # Compiled binaries and build artifacts
 /bin/
 *.exe
-bot
+/bot
 
 # Editor/OS files
 .DS_Store

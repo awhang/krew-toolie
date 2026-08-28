@@ -11,7 +11,8 @@ internal/
   config/                # Loads DISCORD_TOKEN and DATABASE_URL from env
   database/              # GORM models, DB connection, AutoMigrate
     repository/          # Data-access layer (ToolRepository, UserRepository)
-  handlers/              # Slash command implementations
+  fuzzy/                 # Token-substring, case-insensitive name matching
+  handlers/              # Slash command + button (component) handlers
 docker-compose.yml       # Local PostgreSQL service
 .env                     # Local secrets (never commit real values)
 ```
@@ -32,6 +33,20 @@ go vet ./...                # Static analysis
 ```
 
 Populate `.env` with `DISCORD_TOKEN` and `DATABASE_URL` before running; PostgreSQL must be up via `docker compose`.
+
+## Commands & Behavior
+
+- `/addtool name [store_link]` — add a tool to your collection. A user cannot have two tools with the same exact name (enforced by a DB unique index on `owner_id + name`).
+- `/borrow user_name [tool_name]` — borrow a tool from a user. Fuzzy + case-insensitive lookups for both `user_name` and `tool_name`. With only `user_name`, lists that user's tools. If several tools match, the bot shows interactive buttons to choose one.
+- `/return tool_name` — return a currently borrowed tool.
+- `/removetool tool_name` — remove one of your own tools (owner-scoped; fuzzy match, with buttons when several match).
+- `/mytools` / `/available` — list your tools / all available tools.
+
+Name matching is token-substring: every word of the query must appear somewhere in the target, in any order, ignoring case. E.g. `snow blower` matches `Ego Snow Blower`. See `internal/fuzzy`.
+
+Borrow/return operations lock the affected row (`FOR UPDATE`) inside a transaction to prevent concurrent double-borrowing.
+
+Component buttons carry custom IDs like `borrow:<tool-id>` / `remove:<tool-id>`, handled by `HandleComponentInteraction`.
 
 ## Coding Style & Naming Conventions
 

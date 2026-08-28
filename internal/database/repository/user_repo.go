@@ -3,10 +3,12 @@ package repository
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"gorm.io/gorm"
 
 	"krew-toolie/internal/database"
+	"krew-toolie/internal/fuzzy"
 )
 
 type UserRepository struct {
@@ -40,4 +42,27 @@ func (r *UserRepository) GetOrCreate(ctx context.Context, discordID, username st
 		return nil, err
 	}
 	return &user, nil
+}
+
+// FindByUsernameFuzzy returns users whose username fuzzy-matches query using
+// token-substring, case-insensitive matching (see internal/fuzzy).
+// An empty query returns no matches.
+func (r *UserRepository) FindByUsernameFuzzy(ctx context.Context, query string) ([]database.User, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, nil
+	}
+
+	var users []database.User
+	if err := r.db.WithContext(ctx).Find(&users).Error; err != nil {
+		return nil, err
+	}
+
+	matches := make([]database.User, 0, len(users))
+	for _, u := range users {
+		if fuzzy.Match(query, u.Username) {
+			matches = append(matches, u)
+		}
+	}
+	return matches, nil
 }

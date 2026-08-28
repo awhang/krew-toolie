@@ -17,9 +17,9 @@ type User struct {
 
 type Tool struct {
 	ID         string     `gorm:"primaryKey;type:uuid;default:gen_random_uuid()" json:"id"`
-	Name       string     `gorm:"not null" json:"name"`
+	Name       string     `gorm:"not null;uniqueIndex:idx_owner_name" json:"name"`
 	StoreLink  *string    `gorm:"column:store_link" json:"store_link,omitempty"` // Optional
-	OwnerID    string     `gorm:"not null;type:uuid" json:"owner_id"`
+	OwnerID    string     `gorm:"not null;type:uuid;uniqueIndex:idx_owner_name" json:"owner_id"`
 	BorrowerID *string    `gorm:"column:borrower_id;type:uuid;index" json:"borrower_id,omitempty"`
 	BorrowedAt *time.Time `gorm:"column:borrowed_at" json:"borrowed_at,omitempty"`
 	CreatedAt  time.Time  `gorm:"autoCreateTime" json:"created_at"`

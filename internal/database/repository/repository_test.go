@@ -46,7 +46,8 @@ CREATE TABLE tools (
     borrower_id TEXT,
     borrowed_at DATETIME,
     created_at DATETIME,
-    updated_at DATETIME
+    updated_at DATETIME,
+    UNIQUE(owner_id, name)
 );
 `
 	if err := db.Exec(schema).Error; err != nil {
@@ -206,5 +207,150 @@ func TestToolReturn_NotBorrowedFails(t *testing.T) {
 	repo := NewToolRepository(db)
 	if err := repo.ReturnByName(context.Background(), "saw"); err == nil {
 		t.Fatal("expected error when returning a tool that is not borrowed")
+	}
+}
+
+func TestToolRemove_OwnerScoped(t *testing.T) {
+	db := testDB(t)
+	owner := mustCreateUser(t, db, "owner-1", "owner")
+	other := mustCreateUser(t, db, "other-1", "other")
+
+	tool := &database.Tool{
+		ID:      uuid.NewString(),
+		Name:    "Drill",
+		OwnerID: owner.ID,
+	}
+	if err := db.Create(tool).Error; err != nil {
+		t.Fatalf("create tool failed: %v", err)
+	}
+
+	repo := NewToolRepository(db)
+
+	// A different owner cannot remove this tool.
+	if err := repo.Remove(context.Background(), tool.ID, other.ID); err == nil {
+		t.Fatal("expected error when a non-owner removes a tool")
+	}
+
+	// The owner can remove the tool.
+	if err := repo.Remove(context.Background(), tool.ID, owner.ID); err != nil {
+		t.Fatalf("Remove returned error: %v", err)
+	}
+
+	var count int64
+	if err := db.Model(&database.Tool{}).Where("id = ?", tool.ID).Count(&count).Error; err != nil {
+		t.Fatalf("count query failed: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected tool to be deleted, count=%d", count)
+	}
+}
+
+func TestToolRemoveByName_OwnerScoped(t *testing.T) {
+	db := testDB(t)
+	owner := mustCreateUser(t, db, "owner-1", "owner")
+
+	tool := &database.Tool{
+		ID:      uuid.NewString(),
+		Name:    "Hammer",
+		OwnerID: owner.ID,
+	}
+	if err := db.Create(tool).Error; err != nil {
+		t.Fatalf("create tool failed: %v", err)
+	}
+
+	repo := NewToolRepository(db)
+	if err := repo.RemoveByName(context.Background(), "HAMMER", owner.ID); err != nil {
+		t.Fatalf("RemoveByName returned error: %v", err)
+	}
+
+	var count int64
+	if err := db.Model(&database.Tool{}).Where("id = ?", tool.ID).Count(&count).Error; err != nil {
+		t.Fatalf("count query failed: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected tool to be deleted, count=%d", count)
+	}
+}
+
+func TestToolExistsByName(t *testing.T) {
+	db := testDB(t)
+	owner := mustCreateUser(t, db, "owner-1", "owner")
+	other := mustCreateUser(t, db, "other-1", "other")
+
+	tool := &database.Tool{
+		ID:      uuid.NewString(),
+		Name:    "Wrench",
+		OwnerID: owner.ID,
+	}
+	if err := db.Create(tool).Error; err != nil {
+		t.Fatalf("create tool failed: %v", err)
+	}
+
+	repo := NewToolRepository(db)
+
+	exists, err := repo.ExistsByName(context.Background(), "wrench", owner.ID)
+	if err != nil {
+		t.Fatalf("ExistsByName returned error: %v", err)
+	}
+	if !exists {
+		t.Error("expected tool to exist for owner")
+	}
+
+	// Same name owned by a different user should not count.
+	exists, err = repo.ExistsByName(context.Background(), "wrench", other.ID)
+	if err != nil {
+		t.Fatalf("ExistsByName returned error: %v", err)
+	}
+	if exists {
+		t.Error("expected tool NOT to exist for other owner")
+	}
+}
+
+func TestToolDuplicateNamePerOwnerRejectedByUniqueIndex(t *testing.T) {
+	db := testDB(t)
+	owner := mustCreateUser(t, db, "owner-1", "owner")
+
+	first := &database.Tool{ID: uuid.NewString(), Name: "Drill", OwnerID: owner.ID}
+	if err := db.Create(first).Error; err != nil {
+		t.Fatalf("create first tool failed: %v", err)
+	}
+
+	dup := &database.Tool{ID: uuid.NewString(), Name: "Drill", OwnerID: owner.ID}
+	if err := db.Create(dup).Error; err == nil {
+		t.Fatal("expected unique index to reject duplicate exact name per owner")
+	}
+}
+
+func TestFindByUsernameFuzzy(t *testing.T) {
+	db := testDB(t)
+	mustCreateUser(t, db, "u1", "Alice Johnson")
+	mustCreateUser(t, db, "u2", "Bob Smith")
+
+	repo := NewUserRepository(db)
+
+	users, err := repo.FindByUsernameFuzzy(context.Background(), "john")
+	if err != nil {
+		t.Fatalf("FindByUsernameFuzzy returned error: %v", err)
+	}
+	if len(users) != 1 || users[0].Username != "Alice Johnson" {
+		t.Errorf("expected 1 match 'Alice Johnson', got %+v", users)
+	}
+
+	// Case-insensitive, token substring.
+	users, err = repo.FindByUsernameFuzzy(context.Background(), "SMITH")
+	if err != nil {
+		t.Fatalf("FindByUsernameFuzzy returned error: %v", err)
+	}
+	if len(users) != 1 || users[0].Username != "Bob Smith" {
+		t.Errorf("expected 1 match 'Bob Smith', got %+v", users)
+	}
+
+	// Empty query -> no matches.
+	users, err = repo.FindByUsernameFuzzy(context.Background(), "")
+	if err != nil {
+		t.Fatalf("FindByUsernameFuzzy returned error: %v", err)
+	}
+	if len(users) != 0 {
+		t.Errorf("expected 0 matches for empty query, got %d", len(users))
 	}
 }
