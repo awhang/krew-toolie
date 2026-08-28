@@ -22,7 +22,7 @@ func main() {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 
-	b, err := bot.NewBot(cfg.DiscordToken, db)
+	b, err := bot.NewBot(cfg.DiscordToken, db, cfg.GuildID)
 	if err != nil {
 		log.Fatalf("Failed to create bot: %v", err)
 	}

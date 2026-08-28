@@ -10,6 +10,10 @@ import (
 type Config struct {
 	DiscordToken string
 	DatabaseURL  string
+	// GuildID optionally pins slash commands to a specific server so they
+	// propagate immediately. When empty, commands are registered globally
+	// (which Discord can cache for up to ~1 hour).
+	GuildID string
 }
 
 func Load() (*Config, error) {
@@ -28,5 +32,6 @@ func Load() (*Config, error) {
 	return &Config{
 		DiscordToken: discordToken,
 		DatabaseURL:  databaseURL,
+		GuildID:      os.Getenv("GUILD_ID"),
 	}, nil
 }

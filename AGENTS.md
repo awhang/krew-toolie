@@ -56,6 +56,11 @@ Borrow/return operations lock the affected row (`FOR UPDATE`) inside a transacti
 
 Component buttons carry custom IDs like `borrow:<tool-id>` / `remove:<tool-id>`, handled by `HandleComponentInteraction`.
 
+Slash commands are registered at **guild scope** (instant propagation) when the
+bot is in a single server, or to a specific server via the optional `GUILD_ID`
+env var. Without a guild target the bot registers commands globally, which
+Discord can cache for up to ~1 hour before new/updated commands appear.
+
 ## Docker & Deployment
 
 The `Dockerfile` is a multi-stage build that produces a small static binary

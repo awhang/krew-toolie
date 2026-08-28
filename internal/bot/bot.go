@@ -22,11 +22,17 @@ const (
 type Bot struct {
 	session *discordgo.Session
 	handler *handlers.CommandHandler
+	// guildID targets slash command registration to a specific server when set.
+	// If empty, the bot registers commands globally (Discord caches these for up
+	// to ~1 hour). Set it for instant command propagation.
+	guildID string
 }
 
 // NewBot creates the bot and wires up repositories, handlers, and slash
 // command registration. It does not open any network connections yet.
-func NewBot(token string, db *gorm.DB) (*Bot, error) {
+// guildID is optional: when non-empty, commands are registered at the guild
+// (server) scope so they appear immediately.
+func NewBot(token string, db *gorm.DB, guildID string) (*Bot, error) {
 	session, err := discordgo.New("Bot " + token)
 	if err != nil {
 		return nil, err
@@ -39,6 +45,7 @@ func NewBot(token string, db *gorm.DB) (*Bot, error) {
 	b := &Bot{
 		session: session,
 		handler: handler,
+		guildID: guildID,
 	}
 
 	// Handle slash command interactions and button clicks (components).
@@ -72,7 +79,15 @@ func (b *Bot) Stop() {
 
 func (b *Bot) onReady(_ *discordgo.Session, r *discordgo.Ready) {
 	log.Printf("Logged in as %s#%s", r.User.Username, r.User.Discriminator)
-	b.syncCommands()
+
+	guildID := b.guildID
+	if guildID == "" && len(r.Guilds) == 1 {
+		// Auto-select the single guild the bot is in for instant propagation.
+		guildID = r.Guilds[0].ID
+		log.Printf("Auto-selected guild for command sync: %s", guildID)
+	}
+
+	b.syncCommands(guildID)
 }
 
 // botCommands returns the canonical set of slash commands.
@@ -149,24 +164,29 @@ func (b *Bot) botCommands() []*discordgo.ApplicationCommand {
 	}
 }
 
-// syncCommands deletes all of the bot's registered global slash commands and
-// recreates the canonical set from botCommands(). Deleting everything first
+// syncCommands deletes all of the bot's slash commands within the given scope
+// and recreates the canonical set from botCommands(). Deleting everything first
 // guarantees there are no stale, duplicate, or conflicting definitions left over
 // from earlier deployments (such as old /removetool copies that could shadow the
-// current one). Applies global commands, which Discord caches per-guild for up
-// to ~1 hour before they appear.
-func (b *Bot) syncCommands() {
+// current one). When guildID is non-empty the commands are registered, and
+// propagate immediately, at the guild (server) scope. When empty, commands are
+// global, which Discord can cache per-guild for up to ~1 hour before showing.
+func (b *Bot) syncCommands(guildID string) {
 	appID := b.session.State.User.ID
+	scope := ""
+	if guildID != "" {
+		scope = guildID
+	}
 
-	existing, err := b.session.ApplicationCommands(appID, "")
+	existing, err := b.session.ApplicationCommands(appID, scope)
 	if err != nil {
 		log.Printf("Failed to list existing commands: %v", err)
 		return
 	}
 
-	// Remove every existing global command so we start from a clean slate.
+	// Remove every existing command in this scope so we start from a clean slate.
 	for _, cmd := range existing {
-		if delErr := b.session.ApplicationCommandDelete(appID, "", cmd.ID); delErr != nil {
+		if delErr := b.session.ApplicationCommandDelete(appID, scope, cmd.ID); delErr != nil {
 			log.Printf("Failed to delete command %s: %v", cmd.Name, delErr)
 		} else {
 			log.Printf("Removed command: %s", cmd.Name)
@@ -175,7 +195,7 @@ func (b *Bot) syncCommands() {
 
 	// Recreate the canonical command set.
 	for _, cmd := range b.botCommands() {
-		if _, createErr := b.session.ApplicationCommandCreate(appID, "", cmd); createErr != nil {
+		if _, createErr := b.session.ApplicationCommandCreate(appID, scope, cmd); createErr != nil {
 			log.Printf("Failed to create command %s: %v", cmd.Name, createErr)
 			continue
 		}
