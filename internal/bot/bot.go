@@ -149,20 +149,14 @@ func (b *Bot) botCommands() []*discordgo.ApplicationCommand {
 	}
 }
 
-// syncCommands reconciles the bot's registered global slash commands with the
-// canonical set in botCommands(). It:
-//   - deletes stale/duplicate commands no longer in the set, so old definitions
-//     left over from earlier deployments don't hide newer commands like
-//     /removetool, and
-//   - creates any canonical command that is missing.
+// syncCommands deletes all of the bot's registered global slash commands and
+// recreates the canonical set from botCommands(). Deleting everything first
+// guarantees there are no stale, duplicate, or conflicting definitions left over
+// from earlier deployments (such as old /removetool copies that could shadow the
+// current one). Applies global commands, which Discord caches per-guild for up
+// to ~1 hour before they appear.
 func (b *Bot) syncCommands() {
 	appID := b.session.State.User.ID
-	want := b.botCommands()
-
-	wantByName := make(map[string]*discordgo.ApplicationCommand, len(want))
-	for _, cmd := range want {
-		wantByName[cmd.Name] = cmd
-	}
 
 	existing, err := b.session.ApplicationCommands(appID, "")
 	if err != nil {
@@ -170,24 +164,17 @@ func (b *Bot) syncCommands() {
 		return
 	}
 
-	// Delete commands that are no longer part of the canonical set.
-	seen := make(map[string]bool, len(want))
+	// Remove every existing global command so we start from a clean slate.
 	for _, cmd := range existing {
-		if _, ok := wantByName[cmd.Name]; !ok {
-			log.Printf("Deleting stale command: %s", cmd.Name)
-			if delErr := b.session.ApplicationCommandDelete(appID, "", cmd.ID); delErr != nil {
-				log.Printf("Failed to delete stale command %s: %v", cmd.Name, delErr)
-			}
-			continue
+		if delErr := b.session.ApplicationCommandDelete(appID, "", cmd.ID); delErr != nil {
+			log.Printf("Failed to delete command %s: %v", cmd.Name, delErr)
+		} else {
+			log.Printf("Removed command: %s", cmd.Name)
 		}
-		seen[cmd.Name] = true
 	}
 
-	// Create any canonical commands that are missing.
-	for _, cmd := range want {
-		if seen[cmd.Name] {
-			continue
-		}
+	// Recreate the canonical command set.
+	for _, cmd := range b.botCommands() {
 		if _, createErr := b.session.ApplicationCommandCreate(appID, "", cmd); createErr != nil {
 			log.Printf("Failed to create command %s: %v", cmd.Name, createErr)
 			continue
