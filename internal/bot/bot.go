@@ -44,8 +44,8 @@ func NewBot(token string, db *gorm.DB) (*Bot, error) {
 	// Handle slash command interactions and button clicks (components).
 	session.AddHandler(handler.HandleInteraction)
 	session.AddHandler(handler.HandleComponentInteraction)
-	// Register slash commands once the gateway connection is ready, since the
-	// application/user ID is only available after the session has connected.
+	// Register/clean up slash commands once the gateway connection is ready,
+	// since the application/user ID is only available after the session connects.
 	session.AddHandler(b.onReady)
 
 	return b, nil
@@ -72,8 +72,12 @@ func (b *Bot) Stop() {
 
 func (b *Bot) onReady(_ *discordgo.Session, r *discordgo.Ready) {
 	log.Printf("Logged in as %s#%s", r.User.Username, r.User.Discriminator)
+	b.syncCommands()
+}
 
-	commands := []*discordgo.ApplicationCommand{
+// botCommands returns the canonical set of slash commands.
+func (b *Bot) botCommands() []*discordgo.ApplicationCommand {
+	return []*discordgo.ApplicationCommand{
 		{
 			Name:        commandAddTool,
 			Description: "Add a tool to your collection",
@@ -143,11 +147,49 @@ func (b *Bot) onReady(_ *discordgo.Session, r *discordgo.Ready) {
 			Description: "List all available tools",
 		},
 	}
+}
 
-	for _, cmd := range commands {
-		_, err := b.session.ApplicationCommandCreate(b.session.State.User.ID, "", cmd)
-		if err != nil {
-			log.Printf("Failed to create command %s: %v", cmd.Name, err)
+// syncCommands reconciles the bot's registered global slash commands with the
+// canonical set in botCommands(). It:
+//   - deletes stale/duplicate commands no longer in the set, so old definitions
+//     left over from earlier deployments don't hide newer commands like
+//     /removetool, and
+//   - creates any canonical command that is missing.
+func (b *Bot) syncCommands() {
+	appID := b.session.State.User.ID
+	want := b.botCommands()
+
+	wantByName := make(map[string]*discordgo.ApplicationCommand, len(want))
+	for _, cmd := range want {
+		wantByName[cmd.Name] = cmd
+	}
+
+	existing, err := b.session.ApplicationCommands(appID, "")
+	if err != nil {
+		log.Printf("Failed to list existing commands: %v", err)
+		return
+	}
+
+	// Delete commands that are no longer part of the canonical set.
+	seen := make(map[string]bool, len(want))
+	for _, cmd := range existing {
+		if _, ok := wantByName[cmd.Name]; !ok {
+			log.Printf("Deleting stale command: %s", cmd.Name)
+			if delErr := b.session.ApplicationCommandDelete(appID, "", cmd.ID); delErr != nil {
+				log.Printf("Failed to delete stale command %s: %v", cmd.Name, delErr)
+			}
+			continue
+		}
+		seen[cmd.Name] = true
+	}
+
+	// Create any canonical commands that are missing.
+	for _, cmd := range want {
+		if seen[cmd.Name] {
+			continue
+		}
+		if _, createErr := b.session.ApplicationCommandCreate(appID, "", cmd); createErr != nil {
+			log.Printf("Failed to create command %s: %v", cmd.Name, createErr)
 			continue
 		}
 		log.Printf("Registered command: %s", cmd.Name)
