@@ -140,7 +140,7 @@ func (h *CommandHandler) renderAvailablePage(s *discordgo.Session, i *discordgo.
 		})
 	}
 
-	components := h.availableComponents(slice, page, totalPages, filter, len(groups))
+	components := h.availableComponents(slice, page, totalPages, filter)
 
 	var resp *discordgo.InteractionResponse
 	if update {
@@ -170,7 +170,7 @@ func (h *CommandHandler) renderAvailablePage(s *discordgo.Session, i *discordgo.
 
 // availableComponents builds the borrow select menu (tools on this page) and
 // the pagination button row.
-func (h *CommandHandler) availableComponents(pageTools []ownerGroup, page, totalPages int, filter string, totalTools int) []discordgo.MessageComponent {
+func (h *CommandHandler) availableComponents(pageTools []ownerGroup, page, totalPages int, filter string) []discordgo.MessageComponent {
 	var comps []discordgo.MessageComponent
 
 	// Borrow select menu for the tools on this page.
@@ -204,30 +204,43 @@ func (h *CommandHandler) availableComponents(pageTools []ownerGroup, page, total
 		comps = append(comps, discordgo.ActionsRow{Components: []discordgo.MessageComponent{menu}})
 	}
 
-	// Pagination buttons: First, Prev, counter, Next, Last.
+	// Pagination buttons. Only render buttons that are actually usable so no
+	// two buttons ever share the same custom ID (Discord rejects duplicates,
+	// which caused /available to silently fail): First/Prev are omitted on the
+	// first page, Next/Last on the last page. When there's a single page the
+	// row shows only a disabled page counter.
 	counter := discordgo.Button{
 		Label:    fmt.Sprintf("%d/%d", page+1, totalPages),
 		Style:    discordgo.SecondaryButton,
 		CustomID: "availnone",
 		Disabled: true,
 	}
-	first := h.pageButton(totalTools, "⏮", 0, filter, page == 0)
-	prev := h.pageButton(totalTools, "◀", page-1, filter, page == 0)
-	next := h.pageButton(totalTools, "▶", page+1, filter, page >= totalPages-1)
-	last := h.pageButton(totalTools, "⏭", totalPages-1, filter, page >= totalPages-1)
 
-	comps = append(comps, discordgo.ActionsRow{Components: []discordgo.MessageComponent{first, prev, counter, next, last}})
+	buttons := []discordgo.MessageComponent{counter}
+	if page > 0 {
+		buttons = append(buttons,
+			h.pageButton("⏮", 0, filter),
+			h.pageButton("◀", page-1, filter),
+		)
+	}
+	if page < totalPages-1 {
+		buttons = append(buttons,
+			h.pageButton("▶", page+1, filter),
+			h.pageButton("⏭", totalPages-1, filter),
+		)
+	}
+
+	comps = append(comps, discordgo.ActionsRow{Components: buttons})
 	return comps
 }
 
-// pageButton builds a pagination button that targets a specific page and
-// carries the current filter query so the page can be rebuilt on click.
-func (h *CommandHandler) pageButton(totalTools int, label string, targetPage int, filter string, disabled bool) discordgo.Button {
+// pageButton builds an enabled pagination button that targets a specific page
+// and carries the current filter query so the page can be rebuilt on click.
+func (h *CommandHandler) pageButton(label string, targetPage int, filter string) discordgo.Button {
 	return discordgo.Button{
 		Label:    label,
 		Style:    discordgo.PrimaryButton,
 		CustomID: prefixAvailPage + strconv.Itoa(targetPage) + ":" + base64.RawURLEncoding.EncodeToString([]byte(filter)),
-		Disabled: disabled,
 	}
 }
 
