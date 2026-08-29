@@ -37,10 +37,12 @@ Populate `.env` with `DISCORD_TOKEN` and `DATABASE_URL` before running; PostgreS
 ## Commands & Behavior
 
 - `/addtool name [store_link]` — add a tool to your collection. A user cannot have two tools with the same exact name (enforced by a DB unique index on `owner_id + name`).
-- `/borrow user_name [tool_name]` — borrow a tool from a user. Fuzzy + case-insensitive lookups for both `user_name` and `tool_name`. With only `user_name`, lists that user's tools. If several tools match, the bot shows interactive buttons to choose one.
-- `/return tool_name` — return a currently borrowed tool.
-- `/removetool tool_name` — remove one of your own tools (owner-scoped; fuzzy match, with buttons when several match).
+- `/borrow tool_name [owner]` — borrow a tool by fuzzy name, optionally narrowed to an owner. `owner` matches a user's username, global display name, or server nickname (fuzzy + case-insensitive). A single match shows a **Confirm/Cancel** prompt; multiple matches show a **select menu** (with a Cancel option) to choose which tool/owner to borrow.
+- `/return tool_name` — return a tool the caller is currently borrowing (borrower-scoped). Single match → **Confirm/Cancel**; multiple matches → **select menu** with Cancel.
+- `/removetool tool_name` — remove one of the caller's own tools (owner-scoped). Single match → **Confirm/Cancel**; multiple matches → **select menu** with Cancel.
 - `/mytools` / `/available` — list your tools / all available tools.
+
+Responses are **ephemeral** for informational listings, error messages, confirm prompts, and select menus. Only the **successful** borrow, return, add, and remove actions post a public message to the channel. Tool/owner names in prompts use the owner's server nickname, then global name, then username.
 
 Name matching is token-substring: every word of the query must appear somewhere in the target, in any order, ignoring case. E.g. `snow blower` matches `Ego Snow Blower`. See `internal/fuzzy`.
 

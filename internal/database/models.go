@@ -5,11 +5,15 @@ import (
 )
 
 type User struct {
-	ID        string    `gorm:"primaryKey;type:uuid;default:gen_random_uuid()" json:"id"`
-	DiscordID string    `gorm:"uniqueIndex;not null" json:"discord_id"`
-	Username  string    `gorm:"not null" json:"username"`
-	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	ID        string `gorm:"primaryKey;type:uuid;default:gen_random_uuid()" json:"id"`
+	DiscordID string `gorm:"uniqueIndex;not null" json:"discord_id"`
+	Username  string `gorm:"not null" json:"username"`
+	// GlobalName is the user's global display name shown in Discord.
+	GlobalName string `gorm:"column:global_name" json:"global_name,omitempty"`
+	// ServerName is the guild-specific nickname, if any.
+	ServerName string    `gorm:"column:server_name" json:"server_name,omitempty"`
+	CreatedAt  time.Time `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt  time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 
 	// Relationships
 	ToolsOwned []Tool `gorm:"foreignKey:OwnerID" json:"tools_owned,omitempty"`

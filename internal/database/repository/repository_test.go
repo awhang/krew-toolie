@@ -35,6 +35,8 @@ CREATE TABLE users (
     id TEXT PRIMARY KEY,
     discord_id TEXT NOT NULL UNIQUE,
     username TEXT NOT NULL,
+    global_name TEXT,
+    server_name TEXT,
     created_at DATETIME,
     updated_at DATETIME
 );
@@ -74,7 +76,7 @@ func TestGetOrCreate_CreatesNewUser(t *testing.T) {
 	db := testDB(t)
 	repo := NewUserRepository(db)
 
-	user, err := repo.GetOrCreate(context.Background(), "discord-1", "alice")
+	user, err := repo.GetOrCreate(context.Background(), "discord-1", "alice", "Alice G", "alice-nick")
 	if err != nil {
 		t.Fatalf("GetOrCreate returned error: %v", err)
 	}
@@ -83,6 +85,12 @@ func TestGetOrCreate_CreatesNewUser(t *testing.T) {
 	}
 	if user.Username != "alice" {
 		t.Errorf("expected username %q, got %q", "alice", user.Username)
+	}
+	if user.GlobalName != "Alice G" {
+		t.Errorf("expected global_name %q, got %q", "Alice G", user.GlobalName)
+	}
+	if user.ServerName != "alice-nick" {
+		t.Errorf("expected server_name %q, got %q", "alice-nick", user.ServerName)
 	}
 
 	// Calling again should return the existing user, not create a duplicate.
@@ -101,12 +109,15 @@ func TestGetOrCreate_ReturnsExistingUser(t *testing.T) {
 
 	existing := mustCreateUser(t, db, "discord-2", "bob")
 
-	user, err := repo.GetOrCreate(context.Background(), "discord-2", "bob-renamed")
+	user, err := repo.GetOrCreate(context.Background(), "discord-2", "bob", "Bob G", "bobby")
 	if err != nil {
 		t.Fatalf("GetOrCreate returned error: %v", err)
 	}
 	if user.ID != existing.ID {
 		t.Errorf("expected existing user ID %q, got %q", existing.ID, user.ID)
+	}
+	if user.GlobalName != "Bob G" || user.ServerName != "bobby" {
+		t.Errorf("expected display names refreshed, got global=%q server=%q", user.GlobalName, user.ServerName)
 	}
 }
 
@@ -178,8 +189,8 @@ func TestToolReturn_Success(t *testing.T) {
 	}
 
 	repo := NewToolRepository(db)
-	if err := repo.ReturnByName(context.Background(), "wrench"); err != nil {
-		t.Fatalf("ReturnByName returned error: %v", err)
+	if err := repo.Return(context.Background(), tool.ID, borrower.ID); err != nil {
+		t.Fatalf("Return returned error: %v", err)
 	}
 
 	var updated database.Tool
@@ -194,6 +205,7 @@ func TestToolReturn_Success(t *testing.T) {
 func TestToolReturn_NotBorrowedFails(t *testing.T) {
 	db := testDB(t)
 	owner := mustCreateUser(t, db, "owner-1", "owner")
+	borrower := mustCreateUser(t, db, "borrower-1", "borrower")
 
 	tool := &database.Tool{
 		ID:      uuid.NewString(),
@@ -205,8 +217,37 @@ func TestToolReturn_NotBorrowedFails(t *testing.T) {
 	}
 
 	repo := NewToolRepository(db)
-	if err := repo.ReturnByName(context.Background(), "saw"); err == nil {
+	if err := repo.Return(context.Background(), tool.ID, borrower.ID); err == nil {
 		t.Fatal("expected error when returning a tool that is not borrowed")
+	}
+}
+
+func TestToolReturn_BorrowerScoped(t *testing.T) {
+	db := testDB(t)
+	owner := mustCreateUser(t, db, "owner-1", "owner")
+	borrower := mustCreateUser(t, db, "borrower-1", "borrower")
+	other := mustCreateUser(t, db, "other-1", "other")
+
+	tool := &database.Tool{
+		ID:         uuid.NewString(),
+		Name:       "Screwdriver",
+		OwnerID:    owner.ID,
+		BorrowerID: &borrower.ID,
+	}
+	if err := db.Create(tool).Error; err != nil {
+		t.Fatalf("create tool failed: %v", err)
+	}
+
+	repo := NewToolRepository(db)
+
+	// A user who is NOT the borrower cannot return it.
+	if err := repo.Return(context.Background(), tool.ID, other.ID); err == nil {
+		t.Fatal("expected error when a non-borrower returns a tool")
+	}
+
+	// The borrower can return it.
+	if err := repo.Return(context.Background(), tool.ID, borrower.ID); err != nil {
+		t.Fatalf("Return returned error: %v", err)
 	}
 }
 
@@ -321,34 +362,44 @@ func TestToolDuplicateNamePerOwnerRejectedByUniqueIndex(t *testing.T) {
 	}
 }
 
-func TestFindByUsernameFuzzy(t *testing.T) {
+func TestFindByOwnerFuzzy(t *testing.T) {
 	db := testDB(t)
-	mustCreateUser(t, db, "u1", "Alice Johnson")
-	mustCreateUser(t, db, "u2", "Bob Smith")
+	db.Create(&database.User{ID: uuid.NewString(), DiscordID: "u1", Username: "alice", GlobalName: "Alice Johnson"})
+	db.Create(&database.User{ID: uuid.NewString(), DiscordID: "u2", Username: "bob", ServerName: "Bobby Smith"})
 
 	repo := NewUserRepository(db)
 
-	users, err := repo.FindByUsernameFuzzy(context.Background(), "john")
+	// Match by username.
+	users, err := repo.FindByOwnerFuzzy(context.Background(), "alice")
 	if err != nil {
-		t.Fatalf("FindByUsernameFuzzy returned error: %v", err)
+		t.Fatalf("FindByOwnerFuzzy returned error: %v", err)
 	}
-	if len(users) != 1 || users[0].Username != "Alice Johnson" {
-		t.Errorf("expected 1 match 'Alice Johnson', got %+v", users)
+	if len(users) != 1 || users[0].Username != "alice" {
+		t.Errorf("expected 1 match by username, got %+v", users)
 	}
 
-	// Case-insensitive, token substring.
-	users, err = repo.FindByUsernameFuzzy(context.Background(), "SMITH")
+	// Match by global display name.
+	users, err = repo.FindByOwnerFuzzy(context.Background(), "johnson")
 	if err != nil {
-		t.Fatalf("FindByUsernameFuzzy returned error: %v", err)
+		t.Fatalf("FindByOwnerFuzzy returned error: %v", err)
 	}
-	if len(users) != 1 || users[0].Username != "Bob Smith" {
-		t.Errorf("expected 1 match 'Bob Smith', got %+v", users)
+	if len(users) != 1 || users[0].GlobalName != "Alice Johnson" {
+		t.Errorf("expected 1 match by global name, got %+v", users)
+	}
+
+	// Match by server nickname, case-insensitive token substring.
+	users, err = repo.FindByOwnerFuzzy(context.Background(), "SMITH")
+	if err != nil {
+		t.Fatalf("FindByOwnerFuzzy returned error: %v", err)
+	}
+	if len(users) != 1 || users[0].ServerName != "Bobby Smith" {
+		t.Errorf("expected 1 match by server name, got %+v", users)
 	}
 
 	// Empty query -> no matches.
-	users, err = repo.FindByUsernameFuzzy(context.Background(), "")
+	users, err = repo.FindByOwnerFuzzy(context.Background(), "")
 	if err != nil {
-		t.Fatalf("FindByUsernameFuzzy returned error: %v", err)
+		t.Fatalf("FindByOwnerFuzzy returned error: %v", err)
 	}
 	if len(users) != 0 {
 		t.Errorf("expected 0 matches for empty query, got %d", len(users))

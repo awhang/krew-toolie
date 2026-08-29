@@ -45,6 +45,26 @@ func (r *ToolRepository) GetByOwner(ctx context.Context, ownerID string) ([]data
 	return tools, err
 }
 
+// GetBorrowedBy returns tools currently borrowed by borrowerID.
+func (r *ToolRepository) GetBorrowedBy(ctx context.Context, borrowerID string) ([]database.Tool, error) {
+	var tools []database.Tool
+	err := r.db.WithContext(ctx).
+		Preload("Owner").
+		Where("borrower_id = ?", borrowerID).
+		Find(&tools).Error
+	return tools, err
+}
+
+// List returns all tools, preloading owner and borrower, for fuzzy matching.
+func (r *ToolRepository) List(ctx context.Context) ([]database.Tool, error) {
+	var tools []database.Tool
+	err := r.db.WithContext(ctx).
+		Preload("Owner").
+		Preload("Borrower").
+		Find(&tools).Error
+	return tools, err
+}
+
 func (r *ToolRepository) GetAvailable(ctx context.Context) ([]database.Tool, error) {
 	var tools []database.Tool
 	err := r.db.WithContext(ctx).
@@ -108,46 +128,24 @@ func (r *ToolRepository) BorrowByName(ctx context.Context, name, borrowerID stri
 	})
 }
 
-// Return clears the borrower from a tool. The row is locked with FOR UPDATE to
-// keep concurrent return/borrow operations consistent.
-func (r *ToolRepository) Return(ctx context.Context, toolID string) error {
+// Return clears the borrower from a tool, but only if borrowerID is the
+// current borrower. The row is locked with FOR UPDATE so concurrent
+// return/borrow operations stay consistent.
+func (r *ToolRepository) Return(ctx context.Context, toolID, borrowerID string) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var tool database.Tool
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("id = ? AND borrower_id IS NOT NULL", toolID).
+			Where("id = ? AND borrower_id = ?", toolID, borrowerID).
 			First(&tool).Error
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return errors.New("tool not found or not borrowed")
+				return errors.New("tool not found or not borrowed by you")
 			}
 			return err
 		}
 
 		return tx.Model(&database.Tool{}).
 			Where("id = ?", toolID).
-			Updates(map[string]interface{}{
-				"borrower_id": nil,
-				"borrowed_at": nil,
-			}).Error
-	})
-}
-
-// ReturnByName is Return by tool name (case-insensitive exact name match).
-func (r *ToolRepository) ReturnByName(ctx context.Context, name string) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var tool database.Tool
-		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("LOWER(name) = ? AND borrower_id IS NOT NULL", strings.ToLower(name)).
-			First(&tool).Error
-		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return errors.New("tool not found or not borrowed")
-			}
-			return err
-		}
-
-		return tx.Model(&database.Tool{}).
-			Where("id = ?", tool.ID).
 			Updates(map[string]interface{}{
 				"borrower_id": nil,
 				"borrowed_at": nil,
