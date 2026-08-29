@@ -177,48 +177,55 @@ func (b *Bot) botCommands() []*discordgo.ApplicationCommand {
 	}
 }
 
-// syncCommands deletes all of the bot's slash commands within the given scope
-// and recreates the canonical set from botCommands(). Deleting everything first
-// guarantees there are no stale, duplicate, or conflicting definitions left over
-// from earlier deployments (such as old /removetool copies that could shadow the
-// current one). When guildID is non-empty the commands are registered, and
-// propagate immediately, at the guild (server) scope. When empty, commands are
-// global, which Discord can cache per-guild for up to ~1 hour before showing.
+// syncCommands registers and refreshes the bot's slash commands.
+//
+// The bot runs in guild-only mode: it registers commands only at the given
+// guild scope (so updates propagate immediately). It also purges any leftover
+// global commands from earlier deployments, because Discord does not expire
+// them on its own and leftover global definitions with the same names can
+// shadow or confuse the guild-scoped commands registered to a server.
 func (b *Bot) syncCommands(guildID string) {
 	appID := b.session.State.User.ID
-	scope := ""
-	if guildID != "" {
-		scope = guildID
-	}
 
-	// Guild-only mode: never register commands at the global scope. The global
-	// (scope=="") code path is retained for reference but is not invoked.
-	if scope == "" {
+	if guildID == "" {
+		// Guild-only mode: never register global commands.
 		log.Printf("WARNING: refusing to register global commands (guild-only mode). Set GUILD_ID or let the bot auto-detect its single server.")
 		return
 	}
 
+	// Purge leftover global commands first so they can't conflict with the
+	// guild-scoped commands.
+	b.clearCommands(appID, "")
+	// Then rebuild the guild-scoped command set (delete + recreate).
+	b.clearCommands(appID, guildID)
+	b.recreateCommands(appID, guildID)
+}
+
+// clearCommands deletes every registered command at the given scope. An empty
+// scope refers to the bot's global commands.
+func (b *Bot) clearCommands(appID, scope string) {
 	existing, err := b.session.ApplicationCommands(appID, scope)
 	if err != nil {
-		log.Printf("Failed to list existing commands: %v", err)
+		log.Printf("Failed to list commands (scope=%q): %v", scope, err)
 		return
 	}
-
-	// Remove every existing command in this scope so we start from a clean slate.
 	for _, cmd := range existing {
 		if delErr := b.session.ApplicationCommandDelete(appID, scope, cmd.ID); delErr != nil {
-			log.Printf("Failed to delete command %s: %v", cmd.Name, delErr)
+			log.Printf("Failed to delete command %s (scope=%q): %v", cmd.Name, scope, delErr)
 		} else {
-			log.Printf("Removed command: %s", cmd.Name)
+			log.Printf("Removed command %s (scope=%q)", cmd.Name, scope)
 		}
 	}
+}
 
-	// Recreate the canonical command set.
+// recreateCommands registers the canonical command set at the given scope. An
+// empty scope refers to the bot's global commands.
+func (b *Bot) recreateCommands(appID, scope string) {
 	for _, cmd := range b.botCommands() {
 		if _, createErr := b.session.ApplicationCommandCreate(appID, scope, cmd); createErr != nil {
-			log.Printf("Failed to create command %s: %v", cmd.Name, createErr)
+			log.Printf("Failed to create command %s (scope=%q): %v", cmd.Name, scope, createErr)
 			continue
 		}
-		log.Printf("Registered command: %s", cmd.Name)
+		log.Printf("Registered command %s (scope=%q)", cmd.Name, scope)
 	}
 }
