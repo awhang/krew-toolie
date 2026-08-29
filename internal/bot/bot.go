@@ -80,11 +80,24 @@ func (b *Bot) Stop() {
 func (b *Bot) onReady(_ *discordgo.Session, r *discordgo.Ready) {
 	log.Printf("Logged in as %s#%s", r.User.Username, r.User.Discriminator)
 
+	// Guild commands only: always resolve a guild to register into. If
+	// GUILD_ID is set, it is used directly for instant propagation. Otherwise,
+	// if the bot is in exactly one server, that server is auto-selected. If no
+	// unique guild can be determined, we skip registration rather than falling
+	// back to slow-propagating global commands.
 	guildID := b.guildID
-	if guildID == "" && len(r.Guilds) == 1 {
-		// Auto-select the single guild the bot is in for instant propagation.
-		guildID = r.Guilds[0].ID
-		log.Printf("Auto-selected guild for command sync: %s", guildID)
+	if guildID == "" {
+		switch len(r.Guilds) {
+		case 1:
+			guildID = r.Guilds[0].ID
+			log.Printf("Auto-selected guild for command sync: %s", guildID)
+		case 0:
+			log.Printf("WARNING: no guilds available; skipping command registration (guild-only mode).")
+			return
+		default:
+			log.Printf("WARNING: bot is in %d guilds and GUILD_ID is not set; skipping command registration (guild-only mode). Set GUILD_ID to target a server.", len(r.Guilds))
+			return
+		}
 	}
 
 	b.syncCommands(guildID)
@@ -176,6 +189,13 @@ func (b *Bot) syncCommands(guildID string) {
 	scope := ""
 	if guildID != "" {
 		scope = guildID
+	}
+
+	// Guild-only mode: never register commands at the global scope. The global
+	// (scope=="") code path is retained for reference but is not invoked.
+	if scope == "" {
+		log.Printf("WARNING: refusing to register global commands (guild-only mode). Set GUILD_ID or let the bot auto-detect its single server.")
+		return
 	}
 
 	existing, err := b.session.ApplicationCommands(appID, scope)

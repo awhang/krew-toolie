@@ -58,10 +58,13 @@ Borrow/return operations lock the affected row (`FOR UPDATE`) inside a transacti
 
 Component buttons carry custom IDs like `borrow:<tool-id>` / `remove:<tool-id>`, handled by `HandleComponentInteraction`.
 
-Slash commands are registered at **guild scope** (instant propagation) when the
-bot is in a single server, or to a specific server via the optional `GUILD_ID`
-env var. Without a guild target the bot registers commands globally, which
-Discord can cache for up to ~1 hour before new/updated commands appear.
+The bot is **guild-commands only**: slash commands are registered at **guild
+scope** (a specific server) via the optional `GUILD_ID` env var, or
+auto-detected when the bot is in exactly one server. Guild commands propagate
+**immediately**, so command updates are reflected with no delay. Global-command
+registration is intentionally not used (its code path is retained but skipped
+with a warning), because global commands can be cached by Discord for up to
+~1 hour before updates appear.
 
 ## Docker & Deployment
 
