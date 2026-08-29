@@ -17,6 +17,7 @@ const (
 	commandRemoveTool = "removetool"
 	commandMyTools    = "mytools"
 	commandAvailable  = "available"
+	commandToolieHelp = "tooliehelp"
 )
 
 type Bot struct {
@@ -181,6 +182,10 @@ func (b *Bot) botCommands() []*discordgo.ApplicationCommand {
 					Required:    false,
 				},
 			},
+		},
+		{
+			Name:        commandToolieHelp,
+			Description: "Quick reference for how to use the Toolie bot",
 		},
 	}
 }

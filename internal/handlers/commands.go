@@ -81,6 +81,8 @@ func (h *CommandHandler) HandleInteraction(s *discordgo.Session, i *discordgo.In
 		h.handleMyTools(s, i, caller)
 	case "available":
 		h.handleAvailable(s, i)
+	case "tooliehelp":
+		h.handleToolieHelp(s, i)
 	}
 }
 

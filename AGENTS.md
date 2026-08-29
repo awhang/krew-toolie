@@ -48,6 +48,7 @@ Populate `.env` with `DISCORD_TOKEN` and `DATABASE_URL` before running; PostgreS
 - `/borrow tool_name [owner]` — borrow a tool by fuzzy name, optionally narrowed to an owner. `owner` matches a user's username, global display name, or server nickname (fuzzy + case-insensitive). A single match shows a **Confirm/Cancel** prompt; multiple matches show a **select menu** (with a Cancel option) to choose which tool/owner to borrow.
 - `/return tool_name` — return a tool the caller is currently borrowing (borrower-scoped). Single match → **Confirm/Cancel**; multiple matches → **select menu** with Cancel.
 - `/removetool tool_name` — remove one of the caller's own tools (owner-scoped). Single match → **Confirm/Cancel**; multiple matches → **select menu** with Cancel.
+- `/tooliehelp` — ephemeral quick-reference embed of all commands and their arguments.
 - `/mytools` — list your own tools.
 - `/available [tool]` — list tools you can borrow, **excluding your own**, as an
   embed **grouped by owner** (owner nickname → global name → username) and
