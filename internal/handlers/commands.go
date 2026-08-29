@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -77,8 +78,9 @@ func (h *CommandHandler) HandleComponentInteraction(s *discordgo.Session, i *dis
 	}
 
 	if toolOrCancel == cancelToken {
-		// User cancelled: acknowledge and change nothing.
+		// User cancelled: acknowledge, change nothing, and remove the prompt.
 		h.respondEphemeral(s, i, "Cancelled.")
+		h.deletePrompt(s, i)
 		return
 	}
 
@@ -86,6 +88,7 @@ func (h *CommandHandler) HandleComponentInteraction(s *discordgo.Session, i *dis
 	caller, err := h.userRepo.GetOrCreate(context.Background(), callerID, username, globalName, serverName)
 	if err != nil {
 		h.respondEphemeralError(s, i, "Database error. Please try again later.")
+		h.deletePrompt(s, i)
 		return
 	}
 
@@ -96,6 +99,19 @@ func (h *CommandHandler) HandleComponentInteraction(s *discordgo.Session, i *dis
 		h.doRemove(s, i, toolOrCancel, caller)
 	case actionReturn:
 		h.doReturn(s, i, toolOrCancel, caller)
+	}
+	// Remove the message that held the button/select menu now that the user
+	// has made their choice.
+	h.deletePrompt(s, i)
+}
+
+// deletePrompt removes the original message that contained the button(s) or
+// select menu after the user has made their choice, since it is no longer
+// needed. The prompts are ephemeral, so this deletes the original interaction
+// response.
+func (h *CommandHandler) deletePrompt(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if err := s.InteractionResponseDelete(i.Interaction); err != nil {
+		log.Printf("Failed to delete prompt message: %v", err)
 	}
 }
 
