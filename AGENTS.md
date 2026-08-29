@@ -61,10 +61,11 @@ Component buttons carry custom IDs like `borrow:<tool-id>` / `remove:<tool-id>`,
 The bot is **guild-commands only**: slash commands are registered at **guild
 scope** (a specific server) via the optional `GUILD_ID` env var, or
 auto-detected when the bot is in exactly one server. Guild commands propagate
-**immediately**, so command updates are reflected with no delay. Global-command
-registration is intentionally not used (its code path is retained but skipped
-with a warning), because global commands can be cached by Discord for up to
-~1 hour before updates appear.
+**immediately**, so command updates are reflected with no delay. On each sync
+the bot also **purges any leftover global commands** (an empty scope is never
+used for registration), because Discord does not expire them on its own and
+leftover global definitions with the same names can shadow guild commands to a
+server. Global-command registration code is retained but never invoked.
 
 ## Docker & Deployment
 
