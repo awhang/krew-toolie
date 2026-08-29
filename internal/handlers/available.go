@@ -29,10 +29,12 @@ func (h *CommandHandler) handleAvailable(s *discordgo.Session, i *discordgo.Inte
 		return
 	}
 	if len(groups) == 0 {
+		log.Printf("/available: no groups to show")
 		h.respondEphemeral(s, i, "No tools are currently available to borrow.")
 		return
 	}
 
+	log.Printf("/available: rendering %d owner groups", len(groups))
 	h.renderAvailablePage(s, i, groups, 0, filter, false)
 }
 
@@ -125,9 +127,16 @@ func (h *CommandHandler) renderAvailablePage(s *discordgo.Session, i *discordgo.
 		for _, t := range g.tools {
 			lines = append(lines, "• "+t.Name)
 		}
+		value := strings.Join(lines, "\n")
+		if len(value) > 1000 {
+			// Discord caps embed field values at 1024 chars; overflowing it causes
+			// the whole message to be rejected (silent non-response). Truncate.
+			log.Printf("truncating owner field for %q (%d chars)", displayNameOf(g.owner), len(value))
+			value = value[:1000] + "\n…"
+		}
 		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 			Name:  displayNameOf(g.owner),
-			Value: strings.Join(lines, "\n"),
+			Value: value,
 		})
 	}
 
@@ -153,8 +162,10 @@ func (h *CommandHandler) renderAvailablePage(s *discordgo.Session, i *discordgo.
 		}
 	}
 	if err := s.InteractionRespond(i.Interaction, resp); err != nil {
-		log.Printf("Failed to render /available page: %v", err)
+		log.Printf("Failed to render /available page (update=%v): %v", update, err)
+		return
 	}
+	log.Printf("/available: responded with page %d of %d (embeds=%d, components=%d)", page+1, totalPages, len(embed.Fields), len(components))
 }
 
 // availableComponents builds the borrow select menu (tools on this page) and
