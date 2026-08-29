@@ -90,8 +90,32 @@ docker compose up -d --build app
 docker compose down
 ```
 
+> ⚠️ Plain `docker compose up -d` does **not** rebuild — it reuses the previous
+> image, so code changes won't take effect unless you pass `--build` (or use the
+> Makefile below). This is a common cause of "my changes aren't showing up".
+
+### Makefile shortcuts
+
+Use the `Makefile` so you never have to remember `--build`:
+
+```bash
+make up        # docker compose up -d --build  (always rebuilds, then starts)
+make down      # docker compose down           (preserves the Postgres volume)
+make restart   # docker compose up -d --build app
+make logs      # docker compose logs -f app
+make build     # docker compose build
+make ps        # docker compose ps
+```
+
 > Do **not** use `docker compose down -v` unless you want to wipe the Postgres
 > volume. Use a plain `docker compose down` to preserve data.
+
+> ⚠️ Postgres only applies `POSTGRES_PASSWORD` when its data volume is first
+> initialized. If the volume already exists (created with an older password),
+> changing `POSTGRES_PASSWORD` in `.env` does **not** rotate the running DB
+> password — the bot will fail with `password authentication failed` until the
+> volume is recreated (`docker compose down -v`) or the app is pointed at the
+> password the volume actually uses.
 
 As an alternative, a single bot image (without Postgres) can be built, saved,
 and loaded on the NAS:
