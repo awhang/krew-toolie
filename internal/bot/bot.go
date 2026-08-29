@@ -172,7 +172,15 @@ func (b *Bot) botCommands() []*discordgo.ApplicationCommand {
 		},
 		{
 			Name:        commandAvailable,
-			Description: "List all available tools",
+			Description: "List tools you can borrow, grouped by owner",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "tool",
+					Description: "Optional tool name filter (fuzzy)",
+					Required:    false,
+				},
+			},
 		},
 	}
 }
